@@ -45,6 +45,10 @@ The supported subset maps to `richdoc` as follows (both directions):
 | `tabular` | `Table` (`&` cells, `\\` rows, `l\|c\|r` spec → alignment, `\hline` dropped) |
 | `\href{url}{text}`, `\url{}` | `Link` |
 | `\includegraphics[…]{path}` | `Image` |
+| `\footnote{…}` | `Footnote` (inline arg wrapped in one `Paragraph`) |
+| `\label{id}` | `Anchor` (point target); hoisted onto `Heading.ID` right after a `\section…` |
+| `\ref{id}`, `\eqref{id}` | `CrossRef` (`RefLabel`) |
+| `\cite{key}` | `CrossRef` (`RefCite`) |
 | `$…$`, `\(…\)` | `Math` (inline) |
 | `\[…\]`, `equation`, `align`, … | `MathBlock` |
 | `\hrulefill`, `\rule…` | `ThematicBreak` |
@@ -56,6 +60,19 @@ The supported subset maps to `richdoc` as follows (both directions):
 (`fontenc`, `graphicx`, `hyperref`, `amsmath`, `ulem`, `listings`), maps
 `Meta` title/author/date onto `\title`/`\author`/`\maketitle`, and renders each
 block and inline node back to LaTeX.
+
+Two mappings normalise on the way back to LaTeX. A `\section…` (any level)
+immediately followed by `\label{id}` (only whitespace or comments between) is
+folded into a single `Heading` with that `ID`, and `Write` re-emits the
+`\label` right after the section command — so the pair round-trips as one
+`Heading`. Both `\ref` and `\eqref` parse to a `CrossRef` of kind `RefLabel`,
+and `Write` always emits `\ref`; an `\eqref` source therefore round-trips as
+`\ref` (a benign normalisation, since both denote the same labelled reference).
+`\footnote`, `\label`, `\ref` and `\cite` are all core LaTeX, so the emitted
+output typesets with no extra package. A `\label` that does not immediately
+follow a heading stays a point `Anchor` in the inline stream. Only genuinely
+unrecognised commands and environments still fall back to `RawInline` /
+`RawBlock`.
 
 ## Parsing
 
