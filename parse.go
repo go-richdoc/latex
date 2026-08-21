@@ -203,6 +203,18 @@ func (p *parser) parseBlocks() ([]richdoc.Block, error) {
 			if err != nil {
 				return nil, err
 			}
+			if len(bs) == 1 {
+				if h, ok := bs[0].(richdoc.Heading); ok {
+					id, hoisted, err := p.hoistLabel()
+					if err != nil {
+						return nil, err
+					}
+					if hoisted {
+						h.ID = id
+						bs[0] = h
+					}
+				}
+			}
 			blocks = append(blocks, bs...)
 			continue
 		}
@@ -295,6 +307,30 @@ func (p *parser) handleBlockCommand() ([]richdoc.Block, error) {
 		return []richdoc.Block{richdoc.ThematicBreak{}}, nil
 	}
 	return nil, nil
+}
+
+// hoistLabel reports whether a \label{id} immediately follows the heading the
+// cursor just passed (only whitespace and comments intervening) and, if so,
+// consumes it and returns the id so the caller can attach it to Heading.ID. On
+// no match the cursor is restored, so a following paragraph's leading content is
+// never swallowed.
+func (p *parser) hoistLabel() (id string, hoisted bool, err error) {
+	save := p.pos
+	p.skipLeading()
+	if p.peek() != '\\' {
+		p.pos = save
+		return "", false, nil
+	}
+	name, _, word := p.readControl()
+	if !word || name != "label" {
+		p.pos = save
+		return "", false, nil
+	}
+	id, err = p.readRawArg()
+	if err != nil {
+		return "", false, err
+	}
+	return id, true, nil
 }
 
 // handleEnv consumes the body of the environment named env (the cursor sits just
@@ -534,6 +570,36 @@ func (p *parser) parseInlineControl() (nodes []richdoc.Inline, lit rune, err err
 			return nil, '^', nil
 		case "newline":
 			return []richdoc.Inline{richdoc.LineBreak{}}, 0, nil
+		case "footnote":
+			// A \footnote's argument is inline, but the model's footnote body is
+			// block-level, so wrap the parsed inlines in a single Paragraph.
+			in, err := p.readInlineArg()
+			if err != nil {
+				return nil, 0, err
+			}
+			return []richdoc.Inline{richdoc.Footnote{Blocks: []richdoc.Block{richdoc.Paragraph{Inlines: in}}}}, 0, nil
+		case "label":
+			// A \label not immediately after a heading is a point Anchor in the
+			// inline stream (the heading-hoist case is handled in parseBlocks).
+			id, err := p.readRawArg()
+			if err != nil {
+				return nil, 0, err
+			}
+			return []richdoc.Inline{richdoc.Anchor{ID: id}}, 0, nil
+		case "ref", "eqref":
+			// Both \ref and \eqref parse to RefLabel; Write emits \ref, so \eqref
+			// round-trips as \ref (a benign normalisation, documented in README).
+			id, err := p.readRawArg()
+			if err != nil {
+				return nil, 0, err
+			}
+			return []richdoc.Inline{richdoc.CrossRef{Target: id, Kind: richdoc.RefLabel}}, 0, nil
+		case "cite":
+			id, err := p.readRawArg()
+			if err != nil {
+				return nil, 0, err
+			}
+			return []richdoc.Inline{richdoc.CrossRef{Target: id, Kind: richdoc.RefCite}}, 0, nil
 		default:
 			raw, err := p.captureRawWord(name)
 			if err != nil {

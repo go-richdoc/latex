@@ -128,7 +128,13 @@ var headingCmd = map[int]string{
 func writeBlock(blk richdoc.Block) string {
 	switch b := blk.(type) {
 	case richdoc.Heading:
-		return "\\" + headingCmdFor(b.Level) + "{" + writeInlines(b.Inlines) + "}"
+		s := "\\" + headingCmdFor(b.Level) + "{" + writeInlines(b.Inlines) + "}"
+		if b.ID != "" {
+			// A heading anchor emits the \label right after the section command,
+			// which Parse hoists back onto Heading.ID (see parse.go hoistLabel).
+			s += "\\label{" + b.ID + "}"
+		}
+		return s
 	case richdoc.Paragraph:
 		return writeInlines(b.Inlines)
 	case richdoc.List:
@@ -261,6 +267,19 @@ func writeInlines(nodes []richdoc.Inline) string {
 	return b.String()
 }
 
+// footnoteInlines flattens a footnote body into inline content for \footnote's
+// inline argument. Parse always produces exactly one Paragraph, which is the
+// exact round-trip case; any non-paragraph block contributes nothing.
+func footnoteInlines(blocks []richdoc.Block) []richdoc.Inline {
+	var out []richdoc.Inline
+	for _, b := range blocks {
+		if p, ok := b.(richdoc.Paragraph); ok {
+			out = append(out, p.Inlines...)
+		}
+	}
+	return out
+}
+
 func writeInline(n richdoc.Inline) string {
 	switch v := n.(type) {
 	case richdoc.Text:
@@ -279,6 +298,21 @@ func writeInline(n richdoc.Inline) string {
 		return "\\includegraphics{" + escapeURL(v.URL) + "}"
 	case richdoc.Math:
 		return "$" + v.TeX + "$"
+	case richdoc.Footnote:
+		// Parse always yields a single Paragraph; render its (and any further
+		// block's) inline content back into \footnote's inline argument.
+		return "\\footnote{" + writeInlines(footnoteInlines(v.Blocks)) + "}"
+	case richdoc.Anchor:
+		// A label target; Inlines is usually empty (a point anchor). The ID is
+		// emitted verbatim so Parse reads back the exact same label.
+		return "\\label{" + v.ID + "}" + writeInlines(v.Inlines)
+	case richdoc.CrossRef:
+		// \eqref normalises to \ref on write: both parse to RefLabel, so an
+		// \eqref source round-trips as \ref (a benign normalisation).
+		if v.Kind == richdoc.RefCite {
+			return "\\cite{" + v.Target + "}"
+		}
+		return "\\ref{" + v.Target + "}"
 	case richdoc.RawInline:
 		if v.Format == "" || strings.EqualFold(v.Format, "latex") {
 			return v.Text

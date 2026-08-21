@@ -80,6 +80,28 @@ func TestWriteOutputCompiles(t *testing.T) {
 	compiles(t, out)
 }
 
+// TestV2NodesCompile proves the richdoc v0.2.0 inline nodes (footnote, label,
+// cross-reference and citation) emit core LaTeX that typesets with no extra
+// package. \label/\ref/\cite/\footnote are all built into LaTeX.
+func TestV2NodesCompile(t *testing.T) {
+	doc := richdoc.New().
+		Add(richdoc.Heading{Level: 1, ID: "sec:intro", Inlines: []richdoc.Inline{richdoc.Txt("Introduction")}}).
+		P(
+			richdoc.Txt("A referenced section "), richdoc.Ref("sec:intro"),
+			richdoc.Txt(" with a footnote"), richdoc.Note(richdoc.Paragraph{Inlines: []richdoc.Inline{
+				richdoc.Txt("the footnote body with "), richdoc.Bold(richdoc.Txt("emphasis")),
+			}}),
+			richdoc.Txt(" and a point"), richdoc.Mark("pt:here"),
+			richdoc.Txt(" and a citation "), richdoc.Cite("knuth1984"), richdoc.Txt("."),
+		).
+		Doc()
+	out, err := latex.Write(doc)
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	compiles(t, out)
+}
+
 // TestParsedThenWrittenCompiles proves the full pipeline: parse real LaTeX, emit
 // it again, and confirm the emitted form typesets.
 func TestParsedThenWrittenCompiles(t *testing.T) {
