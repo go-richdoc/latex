@@ -70,3 +70,33 @@ compiles `Write`'s output with the engine and asserts it typesets.
 ## License
 
 BSD-3-Clause. Copyright (c) the go-richdoc authors.
+
+## To a PDF
+
+`latex/pdf` typesets a document rather than writing source for one:
+
+```go
+data, err := pdf.Write(doc, pdf.Options{})   // *richdoc.Document -> PDF bytes
+```
+
+It typesets nothing itself. The document goes out as LaTeX through `Write` above
+and is compiled by [go-tex/engine](https://github.com/go-tex/engine), a pure-Go
+TeX engine that runs the genuine LaTeX classes — so what comes back is a page
+TeX laid out, with TeX's line breaking, rather than an approximation of one.
+
+That composition worked before the package existed; what was missing was
+somewhere to put it. Every converter in this organisation reaches `richdoc`, so
+every one of them now reaches a PDF.
+
+**It is a package rather than a module, and not part of this one.** The engine
+is a six-megabyte TeX implementation. This module already names it, but only
+from a test — checking that the LaTeX it emits actually typesets — so importing
+`latex` does not link it. Putting `Write` beside the LaTeX writer would link it
+into every consumer that only wanted LaTeX text. A separate module would avoid
+that and bring another repository, another set of shared defaults and another
+release to keep in step, for thirty-five lines composing two libraries. Go links
+by package, so a package here costs neither.
+
+What survives the whole way, read back out of the finished PDF with `pdftotext`
+rather than trusted: headings, emphasis, bold, bulleted and numbered lists,
+inline and block code, a quotation, a table, a link, a rule and accented text.
