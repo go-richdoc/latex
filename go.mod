@@ -3,7 +3,7 @@ module github.com/go-richdoc/latex
 go 1.26.4
 
 require (
-	github.com/go-richdoc/richdoc v0.2.0
+	github.com/go-richdoc/richdoc v0.3.0
 	github.com/go-tex/engine v0.165.0
 )
 
