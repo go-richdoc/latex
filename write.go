@@ -315,7 +315,14 @@ func writeInline(n richdoc.Inline) string {
 		return "\\ref{" + v.Target + "}"
 	case richdoc.RawInline:
 		if v.Format == "" || strings.EqualFold(v.Format, "latex") {
-			return v.Text
+			// A trailing newline guards against gluing: writeInlines
+			// concatenates with no separator, so raw content ending in a
+			// bare control word (e.g. "\bfseries") run directly into the
+			// next inline's text would swallow that text into the same
+			// undefined control sequence name and fail to compile. TeX
+			// treats a newline here as ordinary whitespace, which a
+			// control word silently consumes — no visible artifact.
+			return v.Text + "\n"
 		}
 		return ""
 	}

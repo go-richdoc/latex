@@ -6,6 +6,7 @@
 package latex_test
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/go-richdoc/latex"
@@ -100,6 +101,34 @@ func TestV2NodesCompile(t *testing.T) {
 		t.Fatalf("Write: %v", err)
 	}
 	compiles(t, out)
+}
+
+// TestRawInlineGlueDoesNotBreakCompile guards a real bug: writeInlines
+// concatenates adjacent inline nodes with no separator, so a RawInline
+// ending in a bare control word (no argument, no trailing space in the
+// author's own content) run directly into the next inline's text used to
+// swallow that text into the same undefined control sequence name and fail
+// to compile — caught by actually compiling, not just diffing the emitted
+// source. Found via go-richdoc/rst's own v0.16.0 role-registry sync, which
+// was the first real producer of an inline richdoc.RawInline this pipeline
+// had ever exercised end-to-end.
+//
+// Deliberately does NOT use compiles() (Options{Lenient: true}): lenient
+// mode turns exactly this error class, an undefined control sequence, into
+// a non-fatal condition, so it cannot tell a real glue bug from a correct
+// fix — this needs a strict, default-options compile to mean anything.
+func TestRawInlineGlueDoesNotBreakCompile(t *testing.T) {
+	doc := richdoc.New().P(
+		richdoc.RawI("latex", `\bfseries`), richdoc.Txt("Regular text glued right after."),
+	).Doc()
+	out, err := latex.Write(doc)
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	var buf bytes.Buffer
+	if _, err := engine.CompileToPDF(out, engine.Options{}, &buf); err != nil {
+		t.Fatalf("engine did not compile the emitted LaTeX: %v\n---\n%s", err, out)
+	}
 }
 
 // TestParsedThenWrittenCompiles proves the full pipeline: parse real LaTeX, emit
