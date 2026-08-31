@@ -74,6 +74,22 @@ follow a heading stays a point `Anchor` in the inline stream. Only genuinely
 unrecognised commands and environments still fall back to `RawInline` /
 `RawBlock`.
 
+An inline `RawInline` with `Format: "latex"` is written with a trailing
+newline, since adjacent inline nodes are concatenated with no separator of
+their own: raw content ending in a bare control word (e.g. `\bfseries`, no
+argument or trailing space) run directly into the next inline's text would
+otherwise be swallowed into the same, now-undefined, control sequence name
+and fail to compile — a real, previously-latent bug, since nothing produced
+an inline `RawInline` end-to-end until `go-richdoc/rst` gained a role
+registry (v0.16.0). TeX treats the inserted newline as ordinary whitespace,
+which a control word silently consumes, so this is invisible in the typeset
+output; the one cosmetic cost is that re-`Parse`-ing such output can pick up
+one extra leading space on whatever inline immediately followed the raw
+content in source that had none of its own — round-trip-exact whenever the
+author's own markup already had a separating space there, which is the
+common case. `RawBlock` needs no equivalent since `Write` always joins
+blocks (and list items) with at least one newline already.
+
 ## Parsing
 
 `richdoc` is a document model with no parser, and
