@@ -4,7 +4,7 @@ go 1.26.4
 
 require (
 	github.com/go-richdoc/richdoc v0.3.0
-	github.com/go-tex/engine v0.227.0
+	github.com/go-tex/engine v0.228.0
 )
 
 require (
