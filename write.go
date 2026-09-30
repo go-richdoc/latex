@@ -4,6 +4,7 @@
 package latex
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/go-richdoc/richdoc"
@@ -295,7 +296,7 @@ func writeInline(n richdoc.Inline) string {
 	case richdoc.Link:
 		return "\\href{" + escapeURL(v.URL) + "}{" + writeInlines(v.Inlines) + "}"
 	case richdoc.Image:
-		return "\\includegraphics{" + escapeURL(v.URL) + "}"
+		return "\\includegraphics" + graphicxKeys(v) + "{" + escapeURL(v.URL) + "}"
 	case richdoc.Math:
 		return "$" + v.TeX + "$"
 	case richdoc.Footnote:
@@ -328,4 +329,29 @@ func writeInline(n richdoc.Inline) string {
 	}
 	// The inline set is closed; the only remaining type is LineBreak.
 	return "\\\\"
+}
+
+// graphicxKeys builds the "[key=value]" list for an \includegraphics, or "" when
+// the image carries no size at all.
+//
+// The key ORDER follows docutils' own latex2e writer (height, then scale, then
+// width, read directly), so output from this package and from
+// go-docutils/docutils reads the same way. Scale converts back from richdoc's
+// PERCENTAGE to graphicx's factor -- "%g" rather than a fixed precision, so 50
+// gives "scale=0.5" and not "scale=0.500000".
+func graphicxKeys(img richdoc.Image) string {
+	var keys []string
+	if img.Height != "" {
+		keys = append(keys, "height="+img.Height)
+	}
+	if img.Scale != 0 {
+		keys = append(keys, "scale="+strconv.FormatFloat(float64(img.Scale)/100, 'g', -1, 64))
+	}
+	if img.Width != "" {
+		keys = append(keys, "width="+img.Width)
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(keys, ",") + "]"
 }
