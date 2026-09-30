@@ -6,6 +6,8 @@ package latex
 import (
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"github.com/go-richdoc/richdoc"
@@ -554,14 +556,20 @@ func (p *parser) parseInlineControl() (nodes []richdoc.Inline, lit rune, err err
 			u := unescapeURL(url)
 			return []richdoc.Inline{richdoc.Link{URL: u, Inlines: []richdoc.Inline{richdoc.Text{Value: u}}}}, 0, nil
 		case "includegraphics":
-			if _, err := p.readOptArgRaw(); err != nil {
+			// The OPTION LIST was read and thrown away, because richdoc.Image
+			// had no field for any of it. Since richdoc v0.4.0 it has Width,
+			// Height and Scale, so graphicx's own keys survive the trip.
+			opts, err := p.readOptArgRaw()
+			if err != nil {
 				return nil, 0, err
 			}
 			path, err := p.readRawArg()
 			if err != nil {
 				return nil, 0, err
 			}
-			return []richdoc.Inline{richdoc.Image{URL: unescapeURL(path)}}, 0, nil
+			img := richdoc.Image{URL: unescapeURL(path)}
+			applyGraphicxKeys(&img, opts)
+			return []richdoc.Inline{img}, 0, nil
 		case "textbackslash":
 			return nil, '\\', nil
 		case "textasciitilde":
@@ -1254,4 +1262,38 @@ func extractPreambleMeta(rs []rune, meta map[string]string) error {
 		}
 	}
 	return nil
+}
+
+// applyGraphicxKeys reads graphicx's own "key=value" list off an
+// \includegraphics option group.
+//
+// Only the three keys richdoc can hold are read. The unit travels with the
+// length, because that is what a length IS in TeX -- "5cm" and "0.5\linewidth"
+// are both legal and mean different things, and a converter that dropped the
+// unit would have to invent one.
+//
+// SCALE is the one conversion. graphicx's scale is a FACTOR (scale=0.5) and
+// richdoc.Scale is a PERCENTAGE, matching reST's ":scale: 50" -- docutils' own
+// latex2e writer makes exactly that translation in the other direction (read
+// directly: it emits "scale=%s" from a percentage divided by 100). Keeping
+// richdoc on the percentage means one converter does the arithmetic rather than
+// every reader of the model guessing which convention it holds.
+func applyGraphicxKeys(img *richdoc.Image, opts string) {
+	for _, part := range strings.Split(opts, ",") {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+		switch key {
+		case "width":
+			img.Width = value
+		case "height":
+			img.Height = value
+		case "scale":
+			if f, err := strconv.ParseFloat(value, 64); err == nil {
+				img.Scale = int(math.Round(f * 100))
+			}
+		}
+	}
 }

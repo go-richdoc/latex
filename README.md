@@ -44,7 +44,7 @@ The supported subset maps to `richdoc` as follows (both directions):
 | `quote` / `quotation` | `BlockQuote` |
 | `tabular` | `Table` (`&` cells, `\\` rows, `l\|c\|r` spec → alignment, `\hline` dropped) |
 | `\href{url}{text}`, `\url{}` | `Link` |
-| `\includegraphics[…]{path}` | `Image` |
+| `\includegraphics[…]{path}` | `Image`, with graphicx's `width`, `height` and `scale` keys (see below) |
 | `\footnote{…}` | `Footnote` (inline arg wrapped in one `Paragraph`) |
 | `\label{id}` | `Anchor` (point target); hoisted onto `Heading.ID` right after a `\section…` |
 | `\ref{id}`, `\eqref{id}` | `CrossRef` (`RefLabel`) |
@@ -99,6 +99,34 @@ a reusable structured parse tree. So `latex` ships its own focused,
 well-tested LaTeX-subset parser (no full TeX macro expander, no non-Go
 dependency). The go-tex engine is used to **prove** the round-trip: a test
 compiles `Write`'s output with the engine and asserts it typesets.
+
+## The graphicx keys
+
+`\includegraphics`'s option list used to be read and **discarded**: `richdoc.Image`
+had no field for any of it, so every `width`, `height` and `scale` a LaTeX author
+wrote was lost on the way in, and a bare `\includegraphics` came out. Since
+richdoc v0.4.0 the three keys richdoc can hold survive the trip.
+
+The **unit travels with the length**, because that is what a length is in TeX:
+`5cm` and `0.5\linewidth` are both legal and mean different things, and a
+converter that dropped the unit would have to invent one.
+
+`scale` is the one conversion. graphicx's `scale` is a **factor** (`scale=0.5`)
+and `richdoc.Scale` is a **percentage**, matching reST's `:scale: 50` — docutils'
+own latex2e writer makes exactly that translation in the other direction. Keeping
+the model on the percentage means one converter does the arithmetic instead of
+every reader of the model guessing which convention it holds.
+
+The keys are written back in latex2e's own order (height, scale, width), so output
+from this package and from [go-docutils/docutils](https://github.com/go-docutils/docutils)
+reads the same way. A `scale` this package cannot read as a number — graphicx
+accepts an expression where a factor is expected — leaves `Scale` alone rather than
+setting it to 0 percent, which would be indistinguishable from "not given".
+
+Not carried: `angle`, `trim`, `clip`, `viewport` and the rest of graphicx's keys,
+and the `\noindent\makebox` wrappers docutils emits for `:align:` — richdoc has
+`Image.Align`, but recognising those wrappers on the way in is a separate piece of
+work from reading a key list.
 
 ## License
 
