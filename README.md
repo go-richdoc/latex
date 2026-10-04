@@ -169,6 +169,16 @@ and the `\noindent\makebox` wrappers docutils emits for `:align:` — richdoc ha
 `Image.Align`, but recognising those wrappers on the way in is a separate piece of
 work from reading a key list.
 
+## Toolchain
+
+Requires **Go 1.27.1**, which is the version the CI workflow pins. The two were out of
+step — the module asked for 1.26.4 while CI already ran 1.27.1 — and that difference
+decides two things a reader of this repository should not have to guess: 1.27 counts
+statements more finely, so a coverage figure from an older toolchain is an upper bound
+rather than a measurement, and its `gofmt` reindents a composite literal inside a
+multi-value return, which an older local `gofmt` reports as clean. Both were checked
+with 1.27.1 here: coverage is unchanged at 100%, and the tree needs no reformatting.
+
 ## License
 
 BSD-3-Clause. Copyright (c) the go-richdoc authors.
