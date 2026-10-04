@@ -43,6 +43,7 @@ The supported subset maps to `richdoc` as follows (both directions):
 | `verbatim` / `lstlisting` | `CodeBlock` (`lstlisting[language=…]` sets the language) |
 | `quote` / `quotation` | `BlockQuote` |
 | `tabular` | `Table` (`&` cells, `\\` rows, `l\|c\|r` spec → alignment, `\hline` dropped) |
+| `table` float | the `Table` inside it, with `\caption` as `Table.Caption` |
 | `\href{url}{text}`, `\url{}` | `Link` |
 | `\includegraphics[…]{path}` | `Image`, with graphicx's `width`, `height` and `scale` keys (see below) |
 | `\footnote{…}` | `Footnote` (inline arg wrapped in one `Paragraph`) |
@@ -99,6 +100,46 @@ a reusable structured parse tree. So `latex` ships its own focused,
 well-tested LaTeX-subset parser (no full TeX macro expander, no non-Go
 dependency). The go-tex engine is used to **prove** the round-trip: a test
 compiles `Write`'s output with the engine and asserts it typesets.
+
+## A cell that holds blocks (richdoc v0.5.0)
+
+A LaTeX cell can hold a list, a verbatim block or several paragraphs, and
+`richdoc.Cell` can now carry that: `Blocks` holds the real content and `Inlines`
+the flattened view a consumer that predates the field still reads. This converter
+writes and reads both.
+
+What makes it legal is the COLUMN SPEC, not the cell. An `l` column is a single
+line, and a list inside one is an error — compiled with tectonic, the same table
+with `ll` fails at the itemize:
+
+```
+! LaTeX Error: Something's wrong--perhaps a missing \item.
+```
+
+and with a `p` column it produces a PDF. So a column holding block content is
+written as `p{\dimexpr\linewidth/<ncols>-2\tabcolsep\relax}` — an equal share of
+the line, minus the padding LaTeX puts on both sides of every cell.
+
+The reference answers the same question the same way. Asked for the LaTeX of a grid
+table whose cell holds a bullet list, docutils emits
+
+```latex
+\begin{longtable*}{|p{0.051\DUtablewidth}|p{0.179\DUtablewidth}|}
+a & \begin{itemize}\item one \item two\end{itemize} \\
+```
+
+a `p` column with the itemize **directly inside it**, no parbox and no minipage.
+Its widths come from the colspecs docutils' own parser computes, which this model
+does not carry, so an equal share is the honest default.
+
+A table with only inline cells keeps the `ll…` spec it always had, which
+`TestAPlainTableKeepsItsLColumns` holds.
+
+### Where a caption goes
+
+`\caption` outside a float is an error, so a captioned table is wrapped in the
+`table` environment with the caption after the tabular, and the parse side reads
+that float back into `Table.Caption`. A table without a caption gets no float.
 
 ## The graphicx keys
 

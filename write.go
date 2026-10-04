@@ -222,7 +222,7 @@ func writeTable(t richdoc.Table) string {
 		}
 	}
 	var b strings.Builder
-	b.WriteString("\\begin{tabular}{" + specFromAlign(t.Align, ncols) + "}\n")
+	b.WriteString("\\begin{tabular}{" + specFromAlign(t.Align, ncols, blockColumns(t, ncols)) + "}\n")
 	if len(t.Header) > 0 {
 		b.WriteString(writeRow(t.Header) + " \\\\\n\\hline\n")
 	}
@@ -230,20 +230,75 @@ func writeTable(t richdoc.Table) string {
 		b.WriteString(writeRow(row) + " \\\\\n")
 	}
 	b.WriteString("\\end{tabular}")
-	return b.String()
+	tabular := b.String()
+	// A CAPTION needs a float: \caption outside one is an error ("\caption outside
+	// float"), so a captioned table is wrapped in the "table" environment, which
+	// is also what the parse side reads back. The reference writes its caption
+	// inside a longtable, which allows one directly; this writer emits tabular.
+	if len(t.Caption) > 0 {
+		return "\\begin{table}\n\\centering\n" + tabular +
+			"\n\\caption{" + writeInlines(t.Caption) + "}\n\\end{table}"
+	}
+	return tabular
+}
+
+// blockColumns reports, per column, whether any cell in it carries block content.
+//
+// It decides the column SPEC, because that is what makes block content legal: an
+// "l" column is a single line, and a paragraph, list or verbatim inside one is a
+// LaTeX error ("Something's wrong--perhaps a missing \item"). The reference answers
+// the same question the same way -- asked for the LaTeX of a grid table whose cell
+// holds a bullet list, docutils emits
+//
+//	\begin{longtable*}{|p{0.051\DUtablewidth}|p{0.179\DUtablewidth}|}
+//	a & \begin{itemize}\item one \item two\end{itemize} \\
+//
+// a "p" column and the list emitted directly, with no parbox or minipage around
+// it. The widths come from the colspecs docutils' own parser computes, which this
+// model does not carry, so an equal share of \linewidth is the honest default.
+func blockColumns(t richdoc.Table, ncols int) []bool {
+	out := make([]bool, ncols)
+	mark := func(cells []richdoc.Cell) {
+		for i, c := range cells {
+			if i < ncols && len(c.Blocks) > 0 {
+				out[i] = true
+			}
+		}
+	}
+	mark(t.Header)
+	for _, row := range t.Rows {
+		mark(row)
+	}
+	return out
 }
 
 func writeRow(cells []richdoc.Cell) string {
 	parts := make([]string, 0, len(cells))
 	for _, c := range cells {
+		// Blocks when richdoc v0.5.0's Cell carries them, the flattened Inlines
+		// when it does not -- the preference order richdoc.Cell documents. A cell
+		// holding a list, a verbatim block or two paragraphs used to arrive here
+		// as a run of inlines and lost its structure; the column spec is what
+		// makes the real thing legal (see blockColumns).
+		if len(c.Blocks) > 0 {
+			parts = append(parts, writeBlocks(c.Blocks))
+			continue
+		}
 		parts = append(parts, writeInlines(c.Inlines))
 	}
 	return strings.Join(parts, " & ")
 }
 
-func specFromAlign(align []richdoc.Alignment, ncols int) string {
+func specFromAlign(align []richdoc.Alignment, ncols int, block []bool) string {
 	var b strings.Builder
 	for i := 0; i < ncols; i++ {
+		if i < len(block) && block[i] {
+			// An equal share of the line, minus the inter-column padding LaTeX
+			// adds on both sides of every cell. \dimexpr is e-TeX, which every
+			// engine in use has had for twenty years.
+			b.WriteString("p{\\dimexpr\\linewidth/" + strconv.Itoa(ncols) + "-2\\tabcolsep\\relax}")
+			continue
+		}
 		a := richdoc.AlignDefault
 		if i < len(align) {
 			a = align[i]
