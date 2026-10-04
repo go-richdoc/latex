@@ -366,6 +366,12 @@ func (p *parser) handleEnv(env string) ([]richdoc.Block, error) {
 			return nil, err
 		}
 		return []richdoc.Block{tbl}, nil
+	case env == "table":
+		// The float a captioned table is wrapped in -- which is what this
+		// package's own writer emits, because \caption outside a float is an
+		// error. Without this case the whole float was a RawBlock: legal LaTeX
+		// out, but the table was invisible to every other format.
+		return p.buildTableFloat(inner)
 	case mathEnvs[env]:
 		return []richdoc.Block{richdoc.MathBlock{TeX: strings.TrimSpace(string(inner))}}, nil
 	default:
@@ -810,6 +816,56 @@ func (p *parser) buildList(ordered bool, inner []rune) (richdoc.Block, error) {
 	return richdoc.List{Ordered: ordered, Start: 1, Items: out}, nil
 }
 
+// buildTableFloat parses a "table" float: a \caption anywhere in it, and the
+// tabular it wraps. The caption becomes [richdoc.Table.Caption] (richdoc v0.5.0),
+// and anything else in the float -- \centering, a label, a rule -- is dropped,
+// being presentation rather than content.
+//
+// If the float holds no tabular there is nothing to attach a caption to, so the
+// whole thing stays a RawBlock rather than losing it.
+func (p *parser) buildTableFloat(inner []rune) ([]richdoc.Block, error) {
+	caption, rest := extractCaption(inner)
+	blocks, err := parseBlocksRunes(rest, p.meta)
+	if err != nil {
+		return nil, err
+	}
+	for _, b := range blocks {
+		tbl, ok := b.(richdoc.Table)
+		if !ok {
+			continue
+		}
+		if caption != "" {
+			inlines, err := parseInlinesRunes([]rune(caption), p.meta)
+			if err != nil {
+				return nil, err
+			}
+			tbl.Caption = inlines
+		}
+		return []richdoc.Block{tbl}, nil
+	}
+	raw := "\\begin{table}" + string(inner) + "\\end{table}"
+	return []richdoc.Block{richdoc.RawBlock{Format: "latex", Text: raw}}, nil
+}
+
+// extractCaption finds the first \caption{...} and returns its interior together
+// with the runes around it, so the caption is not parsed twice -- once as the
+// table's own title and once as a stray paragraph beside it.
+func extractCaption(inner []rune) (string, []rune) {
+	const cmd = "\\caption"
+	s := string(inner)
+	i := strings.Index(s, cmd)
+	if i < 0 {
+		return "", inner
+	}
+	q := &parser{src: []rune(s[i+len(cmd):])}
+	text, err := q.readRawArg()
+	if err != nil {
+		return "", inner
+	}
+	rest := []rune(s[:i] + string(q.src[q.pos:]))
+	return text, rest
+}
+
 // buildTable parses a tabular body: an optional [pos], the {column spec}, then
 // rows separated by \\ and cells by &.
 func (p *parser) buildTable(inner []rune) (richdoc.Block, error) {
@@ -834,15 +890,50 @@ func (p *parser) buildTable(inner []rune) (richdoc.Block, error) {
 		cells := splitCells(row)
 		rowCells := make([]richdoc.Cell, 0, len(cells))
 		for _, cell := range cells {
-			nodes, err := parseInlinesRunes([]rune(strings.TrimSpace(string(cell))), p.meta)
+			trimmed := []rune(strings.TrimSpace(string(cell)))
+			nodes, err := parseInlinesRunes(trimmed, p.meta)
 			if err != nil {
 				return nil, err
 			}
-			rowCells = append(rowCells, richdoc.Cell{Inlines: nodes})
+			rowCells = append(rowCells, richdoc.Cell{
+				Inlines: nodes,
+				Blocks:  cellBlocks(trimmed, p.meta),
+			})
 		}
 		rows = append(rows, rowCells)
 	}
 	return richdoc.Table{Align: align, Rows: rows}, nil
+}
+
+// cellBlocks reads a cell's content as BLOCKS when there is block content to read,
+// and returns nil otherwise. richdoc v0.5.0's Cell carries both: Blocks is the
+// faithful form and the Inlines beside it the flattened view every consumer that
+// predates it still renders.
+//
+// A "p" column may hold a list, a verbatim block or several paragraphs -- that is
+// what the writer emits for such a cell, and what the reference emits too -- and
+// the inline parse turns each of them into a run of RawInlines, so the structure
+// was legal LaTeX going out and invisible coming back.
+//
+// nil for the common case on purpose, the same rule as go-richdoc/rst's own: a cell
+// whose content is one paragraph says everything in Inlines, and filling both would
+// make every consumer choose between two spellings. An error is swallowed rather
+// than returned, because the inline parse above has already succeeded on the same
+// runes: a cell this cannot read as blocks still has its words.
+func cellBlocks(cell []rune, meta map[string]string) []richdoc.Block {
+	if len(cell) == 0 {
+		return nil
+	}
+	blocks, err := parseBlocksRunes(cell, meta)
+	if err != nil || len(blocks) == 0 {
+		return nil
+	}
+	if len(blocks) == 1 {
+		if _, ok := blocks[0].(richdoc.Paragraph); ok {
+			return nil
+		}
+	}
+	return blocks
 }
 
 func isBlankRunes(rs []rune) bool {
