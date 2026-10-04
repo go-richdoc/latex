@@ -925,15 +925,25 @@ func cellBlocks(cell []rune, meta map[string]string) []richdoc.Block {
 		return nil
 	}
 	blocks, err := parseBlocksRunes(cell, meta)
-	if err != nil || len(blocks) == 0 {
+	// One decision with three ways to reach it, which is why it is one condition:
+	// nothing here is worth carrying as Blocks. An ERROR counts because the inline
+	// parse above has already succeeded on the same runes, so a cell this cannot
+	// read as blocks still has its words; a single PARAGRAPH counts because that is
+	// exactly what Inlines already says.
+	if err != nil || len(blocks) == 0 || isOneParagraph(blocks) {
 		return nil
 	}
-	if len(blocks) == 1 {
-		if _, ok := blocks[0].(richdoc.Paragraph); ok {
-			return nil
-		}
-	}
 	return blocks
+}
+
+// isOneParagraph reports whether blocks is a single paragraph -- the shape a cell's
+// Inlines already expresses completely.
+func isOneParagraph(blocks []richdoc.Block) bool {
+	if len(blocks) != 1 {
+		return false
+	}
+	_, ok := blocks[0].(richdoc.Paragraph)
+	return ok
 }
 
 func isBlankRunes(rs []rune) bool {
