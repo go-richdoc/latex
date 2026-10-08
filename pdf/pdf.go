@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/go-opentype/fonts/lora"
 	"github.com/go-richdoc/latex"
 	"github.com/go-richdoc/richdoc"
 	"github.com/go-tex/engine"
@@ -52,7 +53,24 @@ func WriteTo(w io.Writer, doc *richdoc.Document, opt Options) (pages int, err er
 		// nothing. It is reachable from a test through the seam below.
 		return 0, fmt.Errorf("pdf: writing the document as LaTeX: %w", err)
 	}
-	pages, err = compile(src, engine.Options{Lenient: !opt.Strict}, w)
+	pages, err = compile(src, engine.Options{
+		Lenient: !opt.Strict,
+		// ⛔ All three faces, and the reason is a defect this had for as long
+		// as it existed. The engine's own default is a MATHS face used as
+		// text, with no bold and no italic to switch to — so \textbf and \emph
+		// compiled, laid out, and came back ROMAN. Nothing said so: the LaTeX
+		// carried \textbf, the engine did not complain, the page count was
+		// right, and every emphasis in every converted document was quietly
+		// flattened. An ODT that loses every bold word is not a converted
+		// document, it is a flattened one.
+		//
+		// Lora because it is a text face carrying a real bold and a real
+		// italic of the same family, which is the whole requirement. The
+		// engine binds them to \bf and \it itself.
+		Font:       lora.TTF,
+		BoldFont:   lora.BoldTTF,
+		ItalicFont: lora.ItalicTTF,
+	}, w)
 	if err != nil {
 		return 0, fmt.Errorf("pdf: typesetting it: %w", err)
 	}
