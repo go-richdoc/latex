@@ -171,7 +171,7 @@ work from reading a key list.
 
 ## Toolchain
 
-Requires **Go 1.27.1**, which is the version the CI workflow pins. The two were out of
+Requires **Go 1.27.2**, which is the version the CI workflow pins. The two were out of
 step — the module asked for 1.26.4 while CI already ran 1.27.1 — and that difference
 decides two things a reader of this repository should not have to guess: 1.27 counts
 statements more finely, so a coverage figure from an older toolchain is an upper bound
