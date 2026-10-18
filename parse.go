@@ -27,6 +27,49 @@ var errUnmatchedBrace = errors.New("latex: unmatched brace")
 // [richdoc.RawBlock] with Format "latex" rather than discarded. Malformed input
 // (an unterminated group, environment or math span) returns an error.
 func Parse(src []byte) (*richdoc.Document, error) {
+	return ParseWithLimits(src, Limits{})
+}
+
+// Limits bounds what this reader will do with a document nobody wrote.
+//
+// ⛔ MaxDepth is how deeply environments may nest, and it exists because the
+// cost of nesting here is not linear. An environment's body is found by
+// scanning forward to its matching \end (matchEnvBody) and then PARSED, so the
+// innermost text is scanned once per enclosing level. Measured: 2000 nested
+// \begin{itemize} in 68 KB take 2.9 s, where the SAME 68 KB flat -- 2000
+// sibling environments -- take 2 ms. The cost is the nesting, not the bytes,
+// and at 16000 levels a half-megabyte document would hold a CPU for half an
+// hour.
+//
+// The default is 256, and it is picked from a measurement rather than a taste:
+// over the 97 689 real .tex files on the machine this was written on, the
+// DEEPEST nests 64 environments, one file does that, the next deepest is 26,
+// and 92 729 of them nest four or fewer (depthprobe, beside the corpus). 256
+// clears the real maximum four times over and is the same default
+// go-richdoc/html uses, so the family stays consistent.
+//
+// Zero means the default. A NEGATIVE value means no limit, for a caller who
+// would rather spend the time than lose the document -- the same convention
+// go-richdoc/rst's LineLengthLimit uses.
+//
+// There is deliberately no MaxNodes here, though the html and epub readers
+// have one: the defect measured was DEPTH, and a bound nothing has asked for
+// is a bound nobody can tune.
+type Limits struct {
+	MaxDepth int
+}
+
+const defaultMaxDepth = 256
+
+func (l Limits) orDefaults() Limits {
+	if l.MaxDepth == 0 {
+		l.MaxDepth = defaultMaxDepth
+	}
+	return l
+}
+
+// ParseWithLimits is [Parse] with the bounds stated. See [Limits].
+func ParseWithLimits(src []byte, lim Limits) (*richdoc.Document, error) {
 	s := normalizeEOL(string(src))
 	preamble, body := splitDocument(s)
 
@@ -35,7 +78,7 @@ func Parse(src []byte) (*richdoc.Document, error) {
 		return nil, err
 	}
 
-	p := &parser{src: []rune(body), meta: meta}
+	p := &parser{src: []rune(body), meta: meta, lim: lim.orDefaults()}
 	blocks, err := p.parseBlocks()
 	if err != nil {
 		return nil, err
@@ -79,6 +122,37 @@ type parser struct {
 	src  []rune
 	meta map[string]string
 	pos  int
+	lim  Limits
+	// depth is how many environments enclose this parser's own source. It is
+	// carried rather than counted because each nesting level is a NEW parser
+	// over the inner runes -- see sub.
+	depth int
+}
+
+// sub is a parser over runes taken from this one, one level deeper. It refuses
+// past Limits.MaxDepth, which is where the nesting cost is paid: see Limits.
+func (p *parser) sub(rs []rune) (*parser, error) {
+	q := &parser{src: rs, meta: p.meta, lim: p.lim, depth: p.depth + 1}
+	if q.lim.MaxDepth > 0 && q.depth > q.lim.MaxDepth {
+		return nil, fmt.Errorf("latex: environments nest more than %d deep", q.lim.MaxDepth)
+	}
+	return q, nil
+}
+
+func (p *parser) subBlocks(rs []rune) ([]richdoc.Block, error) {
+	q, err := p.sub(rs)
+	if err != nil {
+		return nil, err
+	}
+	return q.parseBlocks()
+}
+
+func (p *parser) subInlines(rs []rune) ([]richdoc.Inline, error) {
+	q, err := p.sub(rs)
+	if err != nil {
+		return nil, err
+	}
+	return q.parseInlineRun(modeBounded)
 }
 
 func (p *parser) eof() bool  { return p.pos >= len(p.src) }
@@ -355,7 +429,7 @@ func (p *parser) handleEnv(env string) ([]richdoc.Block, error) {
 		lang, code := parseListing(inner)
 		return []richdoc.Block{richdoc.CodeBlock{Language: lang, Text: code}}, nil
 	case env == "quote" || env == "quotation":
-		blocks, err := parseBlocksRunes(inner, p.meta)
+		blocks, err := p.subBlocks(inner)
 		if err != nil {
 			return nil, err
 		}
@@ -790,16 +864,6 @@ func (p *parser) captureGroupInner(open, close rune) (string, error) {
 
 // --- environment helpers -----------------------------------------------------
 
-func parseBlocksRunes(rs []rune, meta map[string]string) ([]richdoc.Block, error) {
-	q := &parser{src: rs, meta: meta}
-	return q.parseBlocks()
-}
-
-func parseInlinesRunes(rs []rune, meta map[string]string) ([]richdoc.Inline, error) {
-	q := &parser{src: rs, meta: meta}
-	return q.parseInlineRun(modeBounded)
-}
-
 // buildList splits an itemize/enumerate body into \item entries, each parsed as
 // its own block sequence.
 func (p *parser) buildList(ordered bool, inner []rune) (richdoc.Block, error) {
@@ -807,7 +871,7 @@ func (p *parser) buildList(ordered bool, inner []rune) (richdoc.Block, error) {
 	out := make([]richdoc.ListItem, 0, len(items))
 	for _, it := range items {
 		it = stripLeadingOpt(it)
-		blocks, err := parseBlocksRunes(it, p.meta)
+		blocks, err := p.subBlocks(it)
 		if err != nil {
 			return nil, err
 		}
@@ -825,7 +889,7 @@ func (p *parser) buildList(ordered bool, inner []rune) (richdoc.Block, error) {
 // whole thing stays a RawBlock rather than losing it.
 func (p *parser) buildTableFloat(inner []rune) ([]richdoc.Block, error) {
 	caption, rest := extractCaption(inner)
-	blocks, err := parseBlocksRunes(rest, p.meta)
+	blocks, err := p.subBlocks(rest)
 	if err != nil {
 		return nil, err
 	}
@@ -835,7 +899,7 @@ func (p *parser) buildTableFloat(inner []rune) ([]richdoc.Block, error) {
 			continue
 		}
 		if caption != "" {
-			inlines, err := parseInlinesRunes([]rune(caption), p.meta)
+			inlines, err := p.subInlines([]rune(caption))
 			if err != nil {
 				return nil, err
 			}
@@ -891,13 +955,13 @@ func (p *parser) buildTable(inner []rune) (richdoc.Block, error) {
 		rowCells := make([]richdoc.Cell, 0, len(cells))
 		for _, cell := range cells {
 			trimmed := []rune(strings.TrimSpace(string(cell)))
-			nodes, err := parseInlinesRunes(trimmed, p.meta)
+			nodes, err := p.subInlines(trimmed)
 			if err != nil {
 				return nil, err
 			}
 			rowCells = append(rowCells, richdoc.Cell{
 				Inlines: nodes,
-				Blocks:  cellBlocks(trimmed, p.meta),
+				Blocks:  p.cellBlocks(trimmed),
 			})
 		}
 		rows = append(rows, rowCells)
@@ -920,11 +984,11 @@ func (p *parser) buildTable(inner []rune) (richdoc.Block, error) {
 // make every consumer choose between two spellings. An error is swallowed rather
 // than returned, because the inline parse above has already succeeded on the same
 // runes: a cell this cannot read as blocks still has its words.
-func cellBlocks(cell []rune, meta map[string]string) []richdoc.Block {
+func (p *parser) cellBlocks(cell []rune) []richdoc.Block {
 	if len(cell) == 0 {
 		return nil
 	}
-	blocks, err := parseBlocksRunes(cell, meta)
+	blocks, err := p.subBlocks(cell)
 	// One decision with three ways to reach it, which is why it is one condition:
 	// nothing here is worth carrying as Blocks. An ERROR counts because the inline
 	// parse above has already succeeded on the same runes, so a cell this cannot
