@@ -10,7 +10,7 @@ require (
 
 require (
 	github.com/ajroetker/go-highway v0.0.4 // indirect
-	github.com/andybalholm/brotli v1.2.3 // indirect
+	github.com/andybalholm/brotli v1.2.7 // indirect
 	github.com/coder/websocket v1.8.15 // indirect
 	github.com/go-crdt/collab v0.45.0 // indirect
 	github.com/go-crdt/crdt v0.46.0 // indirect
