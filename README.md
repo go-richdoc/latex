@@ -273,3 +273,24 @@ by package, so a package here costs neither.
 What survives the whole way, read back out of the finished PDF with `pdftotext`
 rather than trusted: headings, emphasis, bold, bulleted and numbered lists,
 inline and block code, a quotation, a table, a link, a rule and accented text.
+
+⛔ **`pdftotext` proves the words arrive, not the face they arrive in**, and
+those are different questions. The face is read off the PDF's own `/BaseFont`
+entries instead, one cause per document, and as of engine v0.271.0 the answer
+is split:
+
+| markup | face embedded |
+|---|---|
+| plain | `Lora-Regular` |
+| `\emph` / `Emph` | `Lora-Italic` |
+| `\textbf` / `Strong` | `Lora-Regular` — **not bold** |
+
+So emphasis now reaches a reader as a genuine italic, and **bold does not**: it
+is set in the roman, with nothing raised anywhere. This package supplies all
+three faces (`Font`, `BoldFont`, `ItalicFont`, each a distinct and non-empty
+font), so the remaining half is upstream — [go-tex/engine#590](https://github.com/go-tex/engine/issues/590).
+
+It is deliberately not worked around here. A synthetic bold drawn in this
+package would mask the day the engine honours `BoldFont`, so instead
+`TestBoldStillComesBackRoman` asserts that no bold face is embedded today and
+fails on the day that changes, which is the day to delete it.
