@@ -64,35 +64,74 @@ func TestProseIsSetInATextFaceAndNotAMathsOne(t *testing.T) {
 	}
 }
 
-// TestEmphasisStillComesBackRoman records a defect that is NOT in this
-// repository, together with the measurement that found it.
+// facesFor typesets one inline run on its own and reports the faces the PDF
+// carries.
 //
-// ⛔ go-tex/engine's Options carry BoldFont and ItalicFont, documented as
-// "bound to \bf (so \textbf really bolds)". This package supplies all three
-// faces. They are INERT: binding a wholly different family to bold and asking
-// for it six ways — \textbf{x}, {\bf x}, \bfseries, \textit{x}, {\it x} and
-// \emph{x}, in LaTeX mode and in plain TeX — leaves exactly one face in the
-// file, the roman, every time.
-//
-// So this asserts what is TRUE TODAY rather than skipping. A test that skips
-// asserts nothing and quietly stops being about anything; this one fails the
-// day the engine starts honouring the faces, which is the day to delete it and
-// assert the opposite.
-func TestEmphasisStillComesBackRoman(t *testing.T) {
-	doc := richdoc.New().
-		P(richdoc.Text{Value: "plain "},
-			richdoc.Strong{Inlines: []richdoc.Inline{richdoc.Text{Value: "bold"}}},
-			richdoc.Text{Value: " and "},
-			richdoc.Emph{Inlines: []richdoc.Inline{richdoc.Text{Value: "italic"}}}).
-		Doc()
-
-	out, err := pdf.Write(doc, pdf.Options{})
+// ⛔ ONE CAUSE PER DOCUMENT. The predecessor of the two tests below put bold
+// and italic in the same paragraph and counted the faces, which cannot say
+// WHICH markup produced which face — and that is exactly the question that
+// mattered the day the engine changed: measured at engine v0.271.0, a mixed
+// paragraph yields [Lora-Regular Lora-Italic], a figure equally consistent with
+// "italic works", "bold works" and "one of them works". Separate documents
+// answered it in one run.
+func facesFor(t *testing.T, in ...richdoc.Inline) []string {
+	t.Helper()
+	out, err := pdf.Write(richdoc.New().P(in...).Doc(), pdf.Options{})
 	if err != nil {
-		t.Fatalf("typesetting a paragraph with bold and italic in it: %v", err)
+		t.Fatalf("typesetting %v: %v", in, err)
 	}
-	if faces := embedded(out); len(faces) != 1 {
-		t.Errorf("the engine now embeds %d faces (%v) — if it honours bold and italic, "+
-			"this test has served its purpose: delete it and assert that it does",
-			len(faces), faces)
+	return embedded(out)
+}
+
+// TestEmphasisComesBackInAnItalicFace is the assertion its own predecessor
+// asked for.
+//
+// ⛔ THE HISTORY MATTERS, because it is why this is an assertion about the FILE
+// and not about the LaTeX. go-tex/engine's Options carry BoldFont and
+// ItalicFont, documented as "bound to \bf (so \textbf really bolds)", and this
+// package has always supplied all three faces. Up to engine v0.228.0 they were
+// INERT: asking six ways — \textbf{x}, {\bf x}, \bfseries, \textit{x}, {\it x}
+// and \emph{x}, in LaTeX mode and in plain TeX — left exactly one face in the
+// file, the roman, every time. The test standing here asserted that, in order
+// to fail the day the engine started honouring them rather than skip and
+// quietly stop being about anything.
+//
+// It fired on engine v0.271.0, which is what replaced it: emphasis now reaches
+// the page as a real italic face. Nothing in this repository changed.
+func TestEmphasisComesBackInAnItalicFace(t *testing.T) {
+	faces := facesFor(t, richdoc.Emph{Inlines: []richdoc.Inline{richdoc.Text{Value: "italic"}}})
+	var italic string
+	for _, f := range faces {
+		if strings.Contains(strings.ToLower(f), "italic") {
+			italic = f
+		}
+	}
+	if italic == "" {
+		t.Errorf("emphasis embeds %v, with no italic face among them: "+
+			"the engine has stopped honouring ItalicFont, which it did at v0.271.0", faces)
+	}
+}
+
+// TestBoldStillComesBackRoman keeps the tripwire over the half of that defect
+// which is still open, in the same shape and for the same reason.
+//
+// ⛔ Measured at engine v0.271.0, one cause per document:
+//
+//	roman only   -> [Lora-Regular]
+//	bold only    -> [Lora-Regular]              <- this test
+//	italic only  -> [Lora-Regular Lora-Italic]  <- the test above
+//
+// So the engine began honouring ItalicFont and still ignores BoldFont. \textbf
+// reaches the page in the roman face: the emphasis is simply not there for a
+// reader, and no error is raised anywhere. Reported upstream rather than worked
+// around here, because a synthetic bold drawn in this package would hide the
+// day the engine fixes it — which is the day this test fails and is deleted.
+func TestBoldStillComesBackRoman(t *testing.T) {
+	faces := facesFor(t, richdoc.Strong{Inlines: []richdoc.Inline{richdoc.Text{Value: "bold"}}})
+	for _, f := range faces {
+		if strings.Contains(strings.ToLower(f), "bold") {
+			t.Errorf("bold now embeds %q (all faces: %v) — the engine honours BoldFont: "+
+				"this test has served its purpose, delete it and assert that it does", f, faces)
+		}
 	}
 }
