@@ -1,6 +1,6 @@
 module github.com/go-richdoc/latex
 
-go 1.27.2
+go 1.27.3
 
 require (
 	github.com/go-opentype/fonts v0.14.0
